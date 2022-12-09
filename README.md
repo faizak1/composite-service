@@ -1,4 +1,5 @@
 # composite-service
+# This service will act as a gateway and call the other 3 microservices
 
 Design:
 1. Front end needs to connect to this new Composite Service
