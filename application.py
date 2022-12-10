@@ -5,6 +5,8 @@ from flask_cors import CORS
 import os
 import random
 import boto3
+
+
 import requests
 from oauthlib.oauth2 import WebApplicationClient
 from user_service_resource import UserResource
@@ -19,6 +21,8 @@ from flask_login import (
     logout_user,
 )
 
+#create trip and create itinerary--> to be called from composite service
+
 # Create the Flask application object.
 # Ned to change this and update the local command
 app = Flask(__name__,
@@ -31,45 +35,19 @@ CORS(app)
 
 itenerary_url = str(os.environ.get("ITENERARY_URL"))
 frontend_url = str(os.environ.get("FRONTEND_URL"))
+review_url = str(os.environ.get("REVIEW_URL"))
+user_service_url = str(os.environ.get("USER_SERVICE_URL"))
 
 app.secret_key = os.environ.get("SECRET_KEY") or os.urandom(24)
 login_manager = LoginManager()
 login_manager.init_app(app)
 
-# Google OAuth
-os.environ['OAUTHLIB_INSECURE_TRANSPORT'] = '1'
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", None)
-GOOGLE_CLIENT_SECRET = os.environ.get("GOOGLE_CLIENT_SECRET", None)
-GOOGLE_DISCOVERY_URL = (
-    "https://accounts.google.com/.well-known/openid-configuration"
-)
-client = WebApplicationClient(GOOGLE_CLIENT_ID)
-
-sns = boto3.client('sns', region_name='us-east-2')
-
-def get_google_provider_cfg():
-    return requests.get(GOOGLE_DISCOVERY_URL).json()
-
-
-# Flask-Login helper to retrieve a user from our db
-@login_manager.user_loader
-def load_user(user_id):
-    return User.get(user_id)
-
-
-'''
-@login_manager.unauthorized_handler
-def unauthorized():
-    return "You must be logged in to access this content.", 403
-'''
-
-
 @app.get("/")
 def get_service():
     t = str(datetime.now())
     msg = {
-        "Service": "User Service",
-        "Description ": "A service to manage user accounts/trips/itineraries",
+        "Service": "Composite Service",
+        "Description ": "A service to manage other microservices for CRUD on user accounts/trips/itineraries",
         "at time": t
 
     }
@@ -77,22 +55,11 @@ def get_service():
 
     return result
 
-
-@app.route("/users_service")
-def index():
-    if current_user.is_authenticated:
-        return (
-            "<p>Hello, {}! You're logged in! Email: {}</p>"
-            "<a class='button' href='/logout'>Logout</a>"
-            .format(
-                current_user.name, current_user.email
-            )
-        )
-
-    else:
-        return '<a class="button" href="/users_service/login2">Google Login</a>'
-
-
+#Get auth from user service
+@app.get("/home")
+def get_user_auth():
+    response = str(user_service_url + '/login?userId=')
+    return response
 
 @app.route("/users_service/recommend", methods=["GET"])
 def recommend():
@@ -237,47 +204,6 @@ def signup():
     return resp
 
 
-# get userId by userName
-@app.route("/users_service/get_user_id", methods=["POST"])
-def getUserId():
-    if request.method == 'POST':
-        user_id_response = UserResource.get_user_id(request.get_json()['username'])
-
-        if user_id_response:
-            result = {'user_id': user_id_response}
-            rsp = Response(json.dumps(result), status=200, content_type="application.json")
-        else:
-            result = {'success': False, 'message': 'user id could not be found'}
-            rsp = Response(json.dumps(result), status=404, content_type="application.json")
-    else:
-        rsp = Response("Methods not defined", status=404, content_type="text/plain")
-    return rsp
-
-
-@app.route('/users_service/create_trip', methods=['POST'])
-def create_new_trip():
-    if request.method == 'POST':
-        # trip_id is the itinerary_id sent from frontend
-        print("printing_request", request.get_json())
-        result = UserResource.create_new_trip(request.get_json()['user_id'], request.get_json()['trip_id'])
-        rsp = Response(json.dumps(result), status=200, content_type="application.json")
-        user_name = UserResource.get_user_name(request.get_json()['user_id'])
-        sns.publish(TopicArn='arn:aws:sns:us-east-2:641893269805:trip-notification',Message=str(user_name),Subject=str(request.get_json()['user_id']))
-        print('Notification Sent!')
-    else:
-        rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-    return rsp
-
-@app.route('/users_service/delete_trip', methods=['POST'])
-def delete_trip():
-    if request.method == 'POST':
-        # trip_id is the itinerary_id sent from frontend
-        print("printing_request", request.get_json())
-        result = UserResource.delete_trip(request.get_json()['trip_id'])
-        rsp = Response(json.dumps(result), status=200, content_type="application.json")
-    else:
-        rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-    return rsp
 
 @app.route('/users_service/get_saved_trips', methods=['POST'])
 def get_saved_trips():
@@ -297,257 +223,6 @@ def get_saved_trips():
     else:
         saved_trips = Response("NOT FOUND", status=404, content_type="text/plain")
     return saved_trips
-
-
-# old user login
-@app.route("/users_service/login", methods=["POST"])
-def login():
-    if request.method == 'POST':
-        user_id_response = UserResource.verify_login(request.get_json()['username'],
-                                                     request.get_json()['password'])
-        if user_id_response:
-            result = {'success': True, 'message': 'login successful', 'user_id': user_id_response}
-            rsp = Response(json.dumps(result), status=200, content_type="application.json")
-        else:
-            result = {'success': False, 'message': 'Wrong username or password'}
-            rsp = Response(json.dumps(result), status=200, content_type="application.json")
-    else:
-        rsp = Response("Methods not defined", status=404, content_type="text/plain")
-    return rsp
-
-
-# New login using google authentication
-# The old sign up above needs to be removed
-# For now initializing it as login version 2
-@app.route("/users_service/login2", methods=["GET"])
-def login2():
-    # Find out what URL to hit for Google login
-    google_provider_cfg = get_google_provider_cfg()
-    authorization_endpoint = google_provider_cfg["authorization_endpoint"]
-    print(authorization_endpoint)
-
-    # Use library to construct the request for login and provide scopes that let you retrieve user's profile from Google
-    request_url = client.prepare_request_uri(
-        authorization_endpoint,
-        redirect_uri=request.base_url + "/callback",
-        scope=["openid", "email", "profile"],
-    )
-    # rsp = Response(json.dumps({'request_uri' : request_url}), status=200, content_type="application.json")
-    return {"request_url": request_url}
-    # return redirect(request_url)
-
-
-# user logout
-@app.route("/users_service/logout")
-@login_required
-def logout():
-    logout_user()
-    session.clear()
-    # return {request_url: "http://localhost:3000/"}
-    print("success here")
-    return redirect("http://localhost:3000/")
-
-
-@app.route("/users_service/login2/callback", methods=["GET", "POST"])
-def callback():
-    # Get authorization code from Google sending back to user
-    code = request.args.get("code")
-
-    # Find out what URL to hit to get tokens that allow you to ask for things on behalf of a user
-    google_provider_cfg = get_google_provider_cfg()
-    token_endpoint = google_provider_cfg["token_endpoint"]
-
-    # Prepare and send request to get tokens
-    token_url, headers, body = client.prepare_token_request(
-        token_endpoint,
-        authorization_response=request.url,
-        redirect_url=request.base_url,
-        code=code,
-    )
-
-    token_response = requests.post(
-        token_url,
-        headers=headers,
-        data=body,
-        auth=(GOOGLE_CLIENT_ID, GOOGLE_CLIENT_SECRET),
-    )
-
-    # Parsing the tokens
-    client.parse_request_body_response(json.dumps(token_response.json()))
-
-    # Find tokens and find the hitting URL
-    # from Google that gives you user's information,
-    # including their Google Profile Image and Email, but we can exclude the profile pic if is not implemented in UI
-    userinfo_endpoint = google_provider_cfg["userinfo_endpoint"]
-    print(userinfo_endpoint)
-    uri, headers, body = client.add_token(userinfo_endpoint)
-    userinfo_response = requests.get(uri, headers=headers, data=body)
-
-    # We want to make sure their email is verified.
-    # The user authenticated with Google, and now we've verified their email through Google.
-    if userinfo_response.json().get("email_verified"):
-        unique_id = userinfo_response.json()["sub"]
-        email = userinfo_response.json()["email"]
-        username = userinfo_response.json()["given_name"]
-    else:
-        return "User email not available or not verified by Google.", 400
-
-    # no username
-    print(unique_id)
-
-    # Create a user in our db with the information provided
-    # by Google
-    user = User(id_=unique_id, email=email, name=username)
-    # take to dashboard
-    # Doesn't exist? Add to database
-    # if user exist then display dashboard else display userinputs in the UI
-    url = frontend_url+"loggedin/"+username
-    if not User.get(unique_id):
-        User.create(unique_id, email, username)
-        url = frontend_url+"userInputs/"+username
-        # show form
-    # Begin user session by logging the user in
-    login_user(user)
-    # return redirect(url_for("index"))
-    return redirect(url)
-
-
-# # reset user password
-# @app.route("/users_service/user/reset_password", methods=["POST"])
-# def reset_password():
-#     if request.method == 'POST':
-#         user_id_res = UserResource.reset_password(request.get_json()['email'], request.get_json()['old_password'],
-#                                                   request.get_json()['new_password'])
-#         if user_id_res:
-#             result = {'success': True, 'message': 'changing successful'}
-#             rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#         else:
-#             result = {'success': False, 'message': 'Wrong username or password'}
-#             rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response("Methods not defined", status=404, content_type="text/plain")
-#     return rsp
-
-
-# # edit user profile
-# This route does not make sense to have anymore
-# @app.route("/users_service/user/edit/<user_id>", methods=["POST"])
-# def edit_user(user_id):
-#     if request.method == 'POST':
-#         result = UserResource.edit_user(request.get_json()['user_first_name'],
-#                                         request.get_json()['user_last_name'], user_id)
-#         rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response("Methods not defined", status=404, content_type="text/plain")
-#     return rsp
-
-
-# get user
-@app.route("/users_service/show_user/<user_id>", methods=["GET"])
-def get_user(user_id):
-    result = UserResource.get_user(user_id)
-    print(result)
-    if result:
-        rsp = Response(json.dumps(result), status=200, content_type="application.json")
-    else:
-        rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-
-    return rsp
-
-
-# delete user
-@app.route("/users_service/delete_user/<user_id>", methods=["GET"])
-def delete_user(user_id):
-    result = UserResource.delete_user(user_id)
-    if result['success']:
-        rsp = Response(json.dumps(result), status=200, content_type="application.json")
-    else:
-        rsp = Response(json.dumps(result), status=404, content_type="application.json")
-    return rsp
-
-
-# # create trip
-# @app.route('/users_service/create_new_trip/<user_id>', methods=['POST'])
-# def create_new_trip(user_id):
-#     if request.method == 'POST':
-#         result = UserResource.create_new_trip(user_id, request.get_json()['destination'], request.get_json()['origin'],
-#                                               request.get_json()['num_people'], request.get_json()['budget'])
-#         rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-#     return rsp
-
-
-# get trip
-@app.route("/users_service/show_trips/<trip_id>", methods=["GET"])
-def get_trip(trip_id):
-    result = UserResource.get_trips(trip_id)
-    print(result)
-    if result:
-        rsp = Response(json.dumps(result), status=200, content_type="application.json")
-    else:
-        rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-
-    return rsp
-
-
-# edit trip
-@app.route("/users_service/edit_trips/<trip_id>", methods=["POST"])
-def edit_trips(trip_id):
-    if request.method == 'POST':
-        result = UserResource.edit_trips(request.get_json()['destination'], request.get_json()['origin'],
-                                         request.get_json()['num_people'], request.get_json()['budget'], trip_id)
-        rsp = Response(json.dumps(result), status=200, content_type="application.json")
-    else:
-        rsp = Response("Methods not defined", status=404, content_type="text/plain")
-    return rsp
-
-
-
-# # need to work on the integration test(?)
-# # create new itinerary
-# @app.route('/users_service/create_new_itinerary', methods=['POST'])
-# def create_new_itinerary():
-#     if request.method == 'POST':
-#         result = UserResource.create_new_itinerary(request.get_json()['trip_id'], request.get_json()['total_cost'])
-#         rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-#     return rsp
-#
-#
-# # edit itinerary
-# @app.route("/users_service/edit_itinerary/<itinerary_id>", methods=["POST"])
-# def edit_itinerary(itinerary_id):
-#     if request.method == 'POST':
-#         result = UserResource.edit_itinerary(request.get_json()['total_cost'], itinerary_id)
-#         rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response("Methods not defined", status=404, content_type="text/plain")
-#     return rsp
-#
-#
-# # delete itinerary
-# @app.route("/users_service/delete_itinerary/<itinerary_id>", methods=["GET"])
-# def delete_itinerary(itinerary_id):
-#     result = UserResource.delete_itinerary(itinerary_id)
-#     if result['success']:
-#         rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response(json.dumps(result), status=404, content_type="application.json")
-#     return rsp
-#
-#
-# # get itinerary
-# @app.route("/users_service/get_itinerary/<itinerary_id>", methods=["GET"])
-# def get_itinerary(itinerary_id):
-#     result = UserResource.get_itinerary(itinerary_id)
-#     print(result)
-#     if result:
-#         rsp = Response(json.dumps(result), status=200, content_type="application.json")
-#     else:
-#         rsp = Response("NOT FOUND", status=404, content_type="text/plain")
-#     return rsp
 
 
 if __name__ == "__main__":
