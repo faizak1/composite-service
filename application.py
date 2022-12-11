@@ -36,7 +36,7 @@ ITINERARY_PROPS = {
 }
 REVIEW_PROPS = {
     'microservice': 'Review microservice',
-    'api': 'http://localhost:5003/api/review',
+    'api': 'http://localhost:5012/api/review',
     'fields': ('city', 'user_id')
 }
 
