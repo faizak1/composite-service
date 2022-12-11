@@ -23,6 +23,23 @@ from flask_login import (
 
 #create trip and create itinerary--> to be called from composite service
 
+# TODO change apis to AWS deployed
+USER_PROPS = {
+    'microservice': 'User microservice',
+    'api': 'http://localhost:5011/api/users_service',
+    'fields': ('name', 'email', 'userId', 'tripId', 'fromLocation', 'toLocation', 'fromDate', 'toDate')
+}
+ITINERARY_PROPS = {
+    'microservice': 'Itinerary microservice',
+    'api': 'http://localhost:5001/itenerary_service/get_trip',
+    'fields': ('itinerary_id')
+}
+REVIEW_PROPS = {
+    'microservice': 'Review microservice',
+    'api': 'http://localhost:5003/api/review',
+    'fields': ('city', 'user_id')
+}
+
 # Create the Flask application object.
 # Ned to change this and update the local command
 app = Flask(__name__,
@@ -227,4 +244,4 @@ def get_saved_trips():
 
 if __name__ == "__main__":
     app.debug = True
-    app.run(host="0.0.0.0", port=5011)
+    app.run(host="0.0.0.0", port=5005)
