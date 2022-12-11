@@ -2,9 +2,9 @@
 # This service will act as a gateway and call the other 3 microservices
 
 Design:
-1. Front end needs to connect to this new Composite Service
-2. Composite Service will not handle CRUD, it will call the User Service which will then authenticate user, get trip details, etc
-3. User Service needs to be changed such that it does not directly call itinerary service (Composite->User, User->Composite, then Composite->Itinerary)
+1. Front end needs to connect to this new Composite Service instead of connecting directly to User Service in the beginning
+2. Composite Service will not handle main CRUD, it will call the User Service which will then authenticate user, get trip details, etc
+3. User Service needs to be changed such that it does not directly call itinerary service (design will be as follows: Composite->User, User->Composite, then Composite->Itinerary and same for review service, each microservice will be independent)
 4. User Service data obtained must be sent back to Composite Service (trip id, all trip info, etc) 
 5. Composite Service will pass in trip info and complete CRUD regarding flight details on Itinerary Service
 6. Details from Itinerary Service need to be passed back to composite(the destination city), and composite will call review
